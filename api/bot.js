@@ -6,26 +6,22 @@ const ADMIN_ID = process.env.ADMIN_ID;
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 
 bot.start((ctx) => {
-    ctx.reply('سلام! لینک اینستاگرام رو بفرست تا ویدیوش رو برات دانلود کنم.');
+    ctx.reply('سلام! لینک اینستاگرام رو بفرست تا تست کنیم ببینیم API چی جواب میده.');
 });
 
 bot.on('text', async (ctx) => {
     const userMessage = ctx.message.text;
-    const userId = ctx.from.id;
-    const username = ctx.from.username ? `@${ctx.from.username}` : userId;
 
-    // 1. ارسال نوتیفیکیشن به ادمین (شما)
+    // ارسال نوتیفیکیشن به ادمین
     if (userMessage.includes('http')) {
         try {
-            await bot.telegram.sendMessage(ADMIN_ID, `🔔 پیام جدید!\nکاربر: ${username}\nلینک ارسالی:\n${userMessage}\n\nلطفا چک کن.`);
-        } catch (err) {
-            console.error("خطا در ارسال پیام به ادمین:", err);
-        }
+            await bot.telegram.sendMessage(ADMIN_ID, `🔔 لینک جدید دریافت شد:\n${userMessage}`);
+        } catch (err) {}
     }
 
-    // 2. دانلود از اینستاگرام
+    // پردازش اینستاگرام
     if (userMessage.includes('instagram.com')) {
-        const loadingMsg = await ctx.reply('⏳ در حال دریافت ویدیو...');
+        const loadingMsg = await ctx.reply('⏳ در حال درخواست از API...');
 
         try {
             const options = {
@@ -41,58 +37,25 @@ bot.on('text', async (ctx) => {
 
             const response = await axios.request(options);
             
-            // چاپ کردن جواب API در سرور برای عیب یابی
-            console.log("API Response:", JSON.stringify(response.data)); 
+            // اینجا هرچی API جواب داده رو به متن تبدیل میکنیم
+            const apiResult = JSON.stringify(response.data, null, 2);
             
-            // پیدا کردن لینک ویدیو با دقت بالا
-            let videoUrl = null;
-            if (response.data.video_url) {
-                videoUrl = response.data.video_url;
-            } else if (response.data.url) {
-                videoUrl = response.data.url;
-            } else if (response.data.data && typeof response.data.data === 'string') {
-                videoUrl = response.data.data;
-            } else if (response.data.data && response.data.data[0]) {
-                videoUrl = response.data.data[0].video_url || response.data.data[0].url;
-            }
-
-            if (videoUrl) {
-                try {
-                    // اول تلاش میکنه ویدیو رو مستقیم و قابل پخش بفرسته
-                    await ctx.replyWithVideo(videoUrl);
-                } catch (vidErr) {
-                    console.error("تلگرام نتوانست ویدیو را لود کند:", vidErr.message);
-                    // اگر ویدیو باگ داشت یا تلگرام قبول نکرد، لینک مستقیم و سالم رو میفرسته
-                    await ctx.reply(`⚠️ تلگرام نتوانست این ویدیو را مستقیم پخش کند.\n\n📥 **لینک دانلود مستقیم شما:**\n${videoUrl}`);
-                }
-                // پاک کردن پیام "در حال دریافت..."
-                await ctx.deleteMessage(loadingMsg.message_id); 
-            } else {
-                throw new Error("لینک ویدیو پیدا نشد.");
-            }
+            // جواب واقعی API رو برات تو تلگرام میفرسته تا ببینی!
+            await ctx.reply(`پاسخ واقعی API به ما این بود:\n\n${apiResult.substring(0, 3000)}`);
+            await ctx.deleteMessage(loadingMsg.message_id);
 
         } catch (error) {
-            console.error("Error details:", error.message);
             await ctx.deleteMessage(loadingMsg.message_id);
-            ctx.reply('❌ متاسفانه دانلود این ویدیو با خطا مواجه شد. ممکن است پیج پرایوت باشد.');
+            // اگر اصلا API جواب نده این ارور رو میده
+            ctx.reply(`❌ کلا API قطع شده و این ارور رو داد:\n${error.message}`);
         }
     } 
-    // 3. بخش یوتیوب
-    else if (userMessage.includes('youtube.com') || userMessage.includes('youtu.be')) {
-        ctx.reply('یوتیوب هنوز فعال نیست، اما به ادمین اطلاع داده شد!');
-    }
 });
 
-// تنظیمات Vercel برای اجرای ربات
 module.exports = async (req, res) => {
-    try {
-        if (req.method === 'POST') {
-            await bot.handleUpdate(req.body, res);
-        } else {
-            res.status(200).send('Bot is working perfectly!');
-        }
-    } catch (e) {
-        console.error("Webhook Error:", e);
-        res.status(500).send('Error');
+    if (req.method === 'POST') {
+        await bot.handleUpdate(req.body, res);
+    } else {
+        res.status(200).send('working');
     }
 };
