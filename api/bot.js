@@ -3,9 +3,40 @@ const axios = require('axios');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = process.env.ADMIN_ID;
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY; // برگشتیم به کلید قدرتمند خودمون
+
+// 🧠 موتور جستجوی هوشمند: پیدا کردن لینک ویدیو از بین کدهای شلوغِ اینستاگرام
+function findVideoUrl(obj) {
+    let foundUrl = null;
+    function search(item) {
+        if (foundUrl) return; 
+        if (item !== null && typeof item === 'object') {
+            // اگر کلمه video_url پیدا شد
+            if (item.video_url && typeof item.video_url === 'string') {
+                foundUrl = item.video_url;
+                return;
+            }
+            // اگر آرایه video_versions پیدا شد (نسخه باکیفیت)
+            if (item.video_versions && Array.isArray(item.video_versions) && item.video_versions.length > 0) {
+                if (item.video_versions[0].url) {
+                    foundUrl = item.video_versions[0].url;
+                    return;
+                }
+            }
+            // ادامه جستجو در لایه‌های عمیق‌تر
+            if (Array.isArray(item)) {
+                for (let i = 0; i < item.length; i++) search(item[i]);
+            } else {
+                for (let key in item) search(item[key]);
+            }
+        }
+    }
+    search(obj);
+    return foundUrl;
+}
 
 bot.start((ctx) => {
-    ctx.reply('سلام! لینک اینستاگرام یا یوتیوب رو بفرست تا ویدیوش رو برات دانلود کنم.');
+    ctx.reply('سلام! لینک اینستاگرام رو بفرست تا با موتور هوشمند استخراجش کنم.');
 });
 
 bot.on('text', async (ctx) => {
@@ -13,79 +44,61 @@ bot.on('text', async (ctx) => {
     const userId = ctx.from.id;
     const username = ctx.from.username ? `@${ctx.from.username}` : userId;
 
-    // ارسال نوتیفیکیشن برای شما
     if (userMessage.includes('http')) {
         try {
             await bot.telegram.sendMessage(ADMIN_ID, `🔔 پیام جدید!\nکاربر: ${username}\nلینک:\n${userMessage}`);
         } catch (err) {}
     }
 
-    // پشتیبانی همزمان از اینستاگرام و یوتیوب!
-    if (userMessage.includes('instagram.com') || userMessage.includes('youtube.com') || userMessage.includes('youtu.be')) {
-        const loadingMsg = await ctx.reply('⏳ در حال دانلود ویدیو...');
+    if (userMessage.includes('instagram.com')) {
+        const loadingMsg = await ctx.reply('⏳ در حال نفوذ به سرور و استخراج ویدیو...');
 
         try {
-            // ترفند مهم: بریدن کدهای مزاحمِ آخر لینک‌های اینستاگرام (?igsh=)
-            let targetUrl = userMessage;
-            if (userMessage.includes('instagram.com')) {
-                targetUrl = userMessage.split('?')[0]; 
-            }
+            // پاکسازی لینک از کدهای مزاحم
+            const cleanUrl = userMessage.split('?')[0]; 
 
-            let videoUrl = null;
-
-            // تلاش اول: سرور قدرتمند کبالت (برای اینستا و یوتیوب)
-            try {
-                const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', {
-                    url: targetUrl
-                }, {
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (cobaltRes.data && cobaltRes.data.url) {
-                    videoUrl = cobaltRes.data.url;
+            // درخواست به RapidAPI که قدرت دور زدن بلاک را دارد
+            const options = {
+                method: 'GET',
+                url: 'https://instagram-reels-downloader-api.p.rapidapi.com/download',
+                params: { url: cleanUrl },
+                headers: {
+                    'x-rapidapi-key': RAPIDAPI_KEY,
+                    'x-rapidapi-host': 'instagram-reels-downloader-api.p.rapidapi.com',
+                    'Content-Type': 'application/json'
                 }
-            } catch (e1) {
-                console.log("کبالت ارور داد:", e1.message);
-            }
+            };
 
-            // تلاش دوم: اگر اولی شلوغ بود (فقط برای اینستاگرام)
-            if (!videoUrl && userMessage.includes('instagram.com')) {
-                try {
-                    const fallbackRes = await axios.get(`https://api.ryzendesu.vip/api/downloader/igdl?url=${encodeURIComponent(targetUrl)}`);
-                    if (fallbackRes.data && fallbackRes.data.data && fallbackRes.data.data.length > 0) {
-                        videoUrl = fallbackRes.data.data[0].url;
-                    }
-                } catch (e2) {
-                    console.log("سرور کمکی ارور داد.");
-                }
-            }
+            const response = await axios.request(options);
+            
+            // 🔍 سپردنِ خروجیِ شلوغِ API به دست موتور جستجوی هوشمند
+            const videoUrl = findVideoUrl(response.data);
 
-            // اگر بالاخره لینک استخراج شد
             if (videoUrl) {
                 try {
+                    // ارسال ویدیو به کاربر
                     await ctx.replyWithVideo(videoUrl);
                 } catch (vidErr) {
+                    // اگر حجم زیاد بود یا تلگرام گیر داد
                     await ctx.reply(`⚠️ تلگرام نتوانست این ویدیو را مستقیم پخش کند.\n\n📥 **لینک دانلود مستقیم:**\n${videoUrl}`);
                 }
                 await ctx.deleteMessage(loadingMsg.message_id); 
             } else {
-                throw new Error("ویدیو پیدا نشد");
+                throw new Error("ویدیو داخل کدهای اینستاگرام پیدا نشد.");
             }
 
         } catch (error) {
             await ctx.deleteMessage(loadingMsg.message_id);
-            ctx.reply('❌ متاسفانه دانلود این ویدیو با خطا مواجه شد. (احتمالاً اینستاگرام جلوی ربات‌ها را برای این ویدیو بسته است).');
+            ctx.reply(`❌ خطا در دانلود ویدیو.\nدلیل ارور: ${error.message}`);
         }
     } 
 });
 
+// اجرای بدون مشکل در Vercel
 module.exports = async (req, res) => {
     if (req.method === 'POST') {
         await bot.handleUpdate(req.body, res);
     } else {
-        res.status(200).send('Bot is Working perfectly!');
+        res.status(200).send('Bot is working with Smart JSON Scanner!');
     }
 };
