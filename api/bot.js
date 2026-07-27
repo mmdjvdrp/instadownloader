@@ -1,61 +1,85 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 
+// اینجا دیگه اصلاً کاری به RAPIDAPI_KEY نداریم
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = process.env.ADMIN_ID;
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 
 bot.start((ctx) => {
-    ctx.reply('سلام! لینک اینستاگرام رو بفرست تا تست کنیم ببینیم API چی جواب میده.');
+    ctx.reply('سلام! لینک اینستاگرام رو بفرست تا ویدیوش رو با سرعت بالا برات دانلود کنم.');
 });
 
 bot.on('text', async (ctx) => {
     const userMessage = ctx.message.text;
+    const userId = ctx.from.id;
+    const username = ctx.from.username ? `@${ctx.from.username}` : userId;
 
-    // ارسال نوتیفیکیشن به ادمین
+    // ارسال نوتیفیکیشن برای ادمین
     if (userMessage.includes('http')) {
         try {
-            await bot.telegram.sendMessage(ADMIN_ID, `🔔 لینک جدید دریافت شد:\n${userMessage}`);
+            await bot.telegram.sendMessage(ADMIN_ID, `🔔 پیام جدید!\nکاربر: ${username}\nلینک:\n${userMessage}`);
         } catch (err) {}
     }
 
-    // پردازش اینستاگرام
+    // دانلود از اینستاگرام بدون نیاز به کلید
     if (userMessage.includes('instagram.com')) {
-        const loadingMsg = await ctx.reply('⏳ در حال درخواست از API...');
+        const loadingMsg = await ctx.reply('⏳ در حال دانلود ویدیو... لطفاً کمی صبر کنید.');
 
         try {
-            const options = {
-                method: 'GET',
-                url: 'https://instagram-reels-downloader-api.p.rapidapi.com/download',
-                params: { url: userMessage },
-                headers: {
-                    'x-rapidapi-key': RAPIDAPI_KEY,
-                    'x-rapidapi-host': 'instagram-reels-downloader-api.p.rapidapi.com',
-                    'Content-Type': 'application/json'
-                }
-            };
+            let videoUrl = null;
+            const encodedUrl = encodeURIComponent(userMessage);
 
-            const response = await axios.request(options);
-            
-            // اینجا هرچی API جواب داده رو به متن تبدیل میکنیم
-            const apiResult = JSON.stringify(response.data, null, 2);
-            
-            // جواب واقعی API رو برات تو تلگرام میفرسته تا ببینی!
-            await ctx.reply(`پاسخ واقعی API به ما این بود:\n\n${apiResult.substring(0, 3000)}`);
-            await ctx.deleteMessage(loadingMsg.message_id);
+            // تلاش اول: استفاده از سرور قدرتمند اول
+            try {
+                const res1 = await axios.get(`https://api.ryzendesu.vip/api/downloader/igdl?url=${encodedUrl}`);
+                if (res1.data && res1.data.data && res1.data.data.length > 0) {
+                    videoUrl = res1.data.data[0].url;
+                }
+            } catch (e1) {
+                console.log("سرور اول قطع بود.");
+            }
+
+            // تلاش دوم: اگر سرور اول جواب نداد، سریع میره سراغ سرور دوم
+            if (!videoUrl) {
+                try {
+                    const res2 = await axios.get(`https://api.siputzx.my.id/api/d/igdl?url=${encodedUrl}`);
+                    if (res2.data && res2.data.data && res2.data.data.length > 0) {
+                        videoUrl = res2.data.data[0].url;
+                    }
+                } catch (e2) {
+                    console.log("سرور دوم هم قطع بود.");
+                }
+            }
+
+            // اگر بالاخره لینک ویدیو پیدا شد
+            if (videoUrl) {
+                try {
+                    // ارسال مستقیم ویدیو تو تلگرام
+                    await ctx.replyWithVideo(videoUrl);
+                } catch (vidErr) {
+                    // اگر تلگرام به خاطر حجم یا فرمت نتونست ویدیو رو لود کنه
+                    await ctx.reply(`⚠️ تلگرام نتوانست این ویدیو را مستقیم پخش کند.\n\n📥 **لینک دانلود مستقیم:**\n${videoUrl}`);
+                }
+                await ctx.deleteMessage(loadingMsg.message_id); 
+            } else {
+                throw new Error("ویدیو پیدا نشد");
+            }
 
         } catch (error) {
             await ctx.deleteMessage(loadingMsg.message_id);
-            // اگر اصلا API جواب نده این ارور رو میده
-            ctx.reply(`❌ کلا API قطع شده و این ارور رو داد:\n${error.message}`);
+            ctx.reply('❌ متاسفانه دانلود این ویدیو با خطا مواجه شد. (ممکن است پیج پرایوت باشد).');
         }
     } 
+    else if (userMessage.includes('youtube.com') || userMessage.includes('youtu.be')) {
+        ctx.reply('نوتیفیکیشن یوتیوب برای ادمین ارسال شد!');
+    }
 });
 
+// اجرای ربات روی Vercel
 module.exports = async (req, res) => {
     if (req.method === 'POST') {
         await bot.handleUpdate(req.body, res);
     } else {
-        res.status(200).send('working');
+        res.status(200).send('Bot is working perfectly without RapidAPI!');
     }
 };
